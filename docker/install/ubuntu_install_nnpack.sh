@@ -20,18 +20,56 @@ set -e
 set -u
 set -o pipefail
 
-apt-get update && apt-install-and-clear -y --no-install-recommends git cmake python-setuptools
+# Install necessary packages
+apt-get update && apt-install-and-clear -y --no-install-recommends git cmake python3-setuptools python3-pip
 
+# Upgrade pip
+pip3 install --upgrade pip
+
+# Install Python dependencies (excluding FP16)
+pip3 install numpy six
+
+# Clone and build FP16 manually
+RETRY_COUNT=3
+RETRY_DELAY=5
+SUCCESS=false
+
+for ((i=1; i<=RETRY_COUNT; i++)); do
+  if git clone https://github.com/Maratyszcza/FP16.git /FP16; then
+    SUCCESS=true
+    break
+  else
+    echo "Attempt $i of $RETRY_COUNT to clone FP16 failed. Retrying in $RETRY_DELAY seconds..."
+    sleep $RETRY_DELAY
+  fi
+done
+
+if [ "$SUCCESS" = false ]; then
+  echo "Failed to clone FP16 repository after $RETRY_COUNT attempts."
+  exit 1
+fi
+
+# Install FP16 manually
+cd /FP16
+mkdir build
+cd build
+cmake ..
+make -j $(nproc)
+make install
+
+# Clone NNPACK and pthreadpool
+cd /
 git clone https://github.com/Maratyszcza/NNPACK NNPACK
-git clone https://github.com/Maratyszcza/pthreadpool  NNPACK/pthreadpool
+git clone https://github.com/Maratyszcza/pthreadpool NNPACK/pthreadpool
 
-# Use specific versioning tag.
+# Use specific versioning tag
 (cd NNPACK && git checkout 70a77f485)
 (cd NNPACK/pthreadpool && git checkout 43edadc)
 
+# Build and install NNPACK
 mkdir -p NNPACK/build
 cd NNPACK/build
 cmake -DCMAKE_INSTALL_PREFIX:PATH=. -DNNPACK_INFERENCE_ONLY=OFF -DNNPACK_CONVOLUTION_ONLY=OFF -DNNPACK_BUILD_TESTS=OFF -DCMAKE_POSITION_INDEPENDENT_CODE=ON -DPTHREADPOOL_SOURCE_DIR=pthreadpool ..
-make -j2
+make -j $(nproc)
 make install
 cd -

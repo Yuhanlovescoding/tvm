@@ -20,15 +20,38 @@ set -e
 set -u
 set -o pipefail
 
+# Update and install necessary packages
 apt-get update --fix-missing
-
-# deps
 apt-install-and-clear -y linux-tools-common linux-tools-generic kmod
 
-cd /
-# Pulling the latest version of this has broken the images before. Checkout the tagged version below for now.
-git clone --branch papi-6-0-0-1-t https://github.com/icl-utk-edu/papi
-cd papi/src
+# Configure Git to handle network issues better
+git config --global http.postBuffer 524288000
+git config --global http.lowSpeedLimit 0
+git config --global http.lowSpeedTime 999999
+git config --global http.followRedirects true
+
+# Retry logic for git clone
+RETRY_COUNT=3
+RETRY_DELAY=5
+SUCCESS=false
+
+for ((i=1; i<=RETRY_COUNT; i++)); do
+  if git clone --branch papi-6-0-0-1-t https://github.com/icl-utk-edu/papi /papi; then
+    SUCCESS=true
+    break
+  else
+    echo "Attempt $i of $RETRY_COUNT failed. Retrying in $RETRY_DELAY seconds..."
+    sleep $RETRY_DELAY
+  fi
+done
+
+if [ "$SUCCESS" = false ]; then
+  echo "Failed to clone PAPI repository after $RETRY_COUNT attempts."
+  exit 1
+fi
+
+# Build and install PAPI
+cd /papi/src
 export PAPI_CUDA_ROOT=/usr/local/cuda
 export PAPI_ROCM_ROOT=/opt/rocm
 ./configure --with-components="$1"
